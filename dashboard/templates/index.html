@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="h-full flex">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-gray-900 border-r border-gray-800 flex flex-col">
+        <div class="p-4 border-b border-gray-800">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <span class="w-3 h-3 bg-green-500 rounded-full pulse-dot"></span>
+                MOI Agent
+            </h1>
+            <p class="text-xs text-gray-500 mt-1">Autonomous AI Agent</p>
+        </div>
+
+        <!-- Status -->
+        <div class="p-4 border-b border-gray-800">
+            <div class="text-xs text-gray-500 uppercase tracking-wider mb-2">Status</div>
+            <div id="agent-status" class="text-sm text-green-400">Idle</div>
+            <div id="queue-info" class="text-xs text-gray-500 mt-1">Queue: 0</div>
+        </div>
+
+        <!-- Active Task -->
+        <div class="p-4 border-b border-gray-800">
+            <div class="text-xs text-gray-500 uppercase tracking-wider mb-2">Active Task</div>
+            <div id="active-task" class="text-sm text-gray-400 truncate">None</div>
+        </div>
+
+        <!-- Tabs -->
+        <nav class="p-4 flex-1 space-y-1">
+            <button onclick="switchTab('chat')" id="tab-chat"
+                class="w-full text-left px-3 py-2 rounded-lg text-sm bg-gray-800 text-white">
+                Chat
+            </button>
+            <button onclick="switchTab('logs')" id="tab-logs"
+                class="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-gray-800">
+                Logs
+            </button>
+            <button onclick="switchTab('cron')" id="tab-cron"
+                class="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-gray-800">
+                Cron Jobs
+            </button>
+            <button onclick="switchTab('skills')" id="tab-skills"
+                class="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-gray-800">
+                Skills
+            </button>
+        </nav>
+
+        <div class="p-4 border-t border-gray-800 text-xs space-y-1">
+            <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-orange-500"></span>
+                <span class="text-gray-500">Claude 4.6 = reasoning/tools</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-cyan-500"></span>
+                <span class="text-gray-500">Qwen 3 = fast/no limits</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="flex-1 flex flex-col min-w-0">
+
+        <!-- ============ CHAT PANEL ============ -->
+        <div id="panel-chat" class="flex-1 flex flex-col">
+            <div id="chat-messages" class="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin">
+                <!-- Welcome message loads here -->
+                <div id="welcome-container" class="flex items-center justify-center h-full">
+                    <div class="text-center max-w-lg">
+                        <div class="text-4xl font-bold text-white mb-4">MOI</div>
+                        <div id="welcome-msg" class="text-lg text-gray-400 leading-relaxed"></div>
+                        <div class="mt-6 text-xs text-gray-600">
+                            Tape un message pour chatter &bull; <code class="bg-gray-800 px-1.5 py-0.5 rounded">/task</code> pour lancer une mission
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Approval banner -->
+            <div id="approval-banner" class="hidden bg-yellow-900/50 border-t border-yellow-700 p-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-yellow-300 font-medium">Approval Required</div>
+                        <div id="approval-action" class="text-sm text-yellow-200/70 mt-1"></div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="approve(true)"
+                            class="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium">
+                            Approve
+                        </button>
+                        <button onclick="approve(false)"
+                            class="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium">
+                            Deny
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input -->
+            <div class="p-4 border-t border-gray-800">
+                <form id="chat-form" class="flex gap-3">
+                    <input type="text" id="chat-input"
+                        placeholder="Type a message or /task instruction..."
+                        class="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm
+                               focus:outline-none focus:border-blue-500 placeholder-gray-500"
+                        autocomplete="off">
+                    <button type="submit"
+                        class="bg-blue-600 hover:bg-blue-500 px-6 py-3 rounded-xl text-sm font-medium transition-colors">
+                        Send
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- ============ LOGS PANEL ============ -->
+        <div id="panel-logs" class="flex-1 flex-col hidden">
+            <div class="p-4 border-b border-gray-800 flex justify-between items-center">
+                <h2 class="font-semibold">Live Logs</h2>
+                <button onclick="clearLogs()" class="text-xs text-gray-500 hover:text-gray-300">Clear</button>
+            </div>
+            <div id="log-container" class="flex-1 overflow-y-auto p-4 mono text-xs scrollbar-thin"></div>
+        </div>
+
+        <!-- ============ CRON PANEL ============ -->
+        <div id="panel-cron" class="flex-1 flex-col hidden">
+            <div class="p-4 border-b border-gray-800">
+                <h2 class="font-semibold mb-4">Cron Jobs</h2>
+                <form id="cron-form" class="flex gap-2 flex-wrap">
+                    <input type="text" id="cron-name" placeholder="Name"
+                        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm w-32
+                               focus:outline-none focus:border-blue-500">
+                    <input type="text" id="cron-instruction" placeholder="Task instruction..."
+                        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm flex-1
+                               focus:outline-none focus:border-blue-500">
+                    <input type="number" id="cron-interval" placeholder="Min" value="60"
+                        class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm w-20
+                               focus:outline-none focus:border-blue-500">
+                    <button type="submit"
+                        class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-sm font-medium">
+                        Add
+                    </button>
+                </form>
+            </div>
+            <div id="cron-list" class="flex-1 overflow-y-auto p-4 space-y-2"></div>
+        </div>
+
+        <!-- ============ SKILLS PANEL ============ -->
+        <div id="panel-skills" class="flex-1 flex-col hidden">
+            <div class="p-4 border-b border-gray-800">
+                <h2 class="font-semibold mb-4">Learned Skills</h2>
+                <form id="skill-form" class="space-y-2">
+                    <div class="flex gap-2">
+                        <input type="text" id="skill-name" placeholder="Skill name"
+                            class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm w-40
+                                   focus:outline-none focus:border-blue-500">
+                        <input type="text" id="skill-desc" placeholder="Description"
+                            class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm flex-1
+                                   focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div class="flex gap-2">
+                        <textarea id="skill-instructions" placeholder="Instructions for the agent..."
+                            rows="2"
+                            class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm flex-1
+                                   focus:outline-none focus:border-blue-500"></textarea>
+                        <button type="submit"
+                            class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-sm font-medium self-end">
+                            Add
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div id="skills-list" class="flex-1 overflow-y-auto p-4 space-y-2"></div>
+        </div>
+
+    </main>
+</div>
+{% endblock %}
