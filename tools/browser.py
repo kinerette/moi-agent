@@ -52,11 +52,16 @@ async def browser_navigate(url: str) -> str:
 
 @tool(
     name="browser_open_visible",
-    description="Open a URL visually in Chrome (only when the user needs to SEE the page).",
+    description="Open a URL in a CLEAN Chrome window (kills other Chrome windows first). Use for computer use tasks.",
     parameters={"url": {"type": "string", "description": "URL to open in Chrome"}},
 )
 async def browser_open_visible(url: str) -> str:
-    import subprocess
-    subprocess.Popen(["cmd", "/c", "start", "", url], shell=False,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return f"Opened {url} in Chrome."
+    import subprocess, asyncio
+    subprocess.run("taskkill /f /im chrome.exe", shell=True, capture_output=True)
+    await asyncio.sleep(2)
+    subprocess.Popen([
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        url, "--start-maximized"
+    ])
+    await asyncio.sleep(5)
+    return f"Chrome opened maximized on {url}. Single tab, no distractions."

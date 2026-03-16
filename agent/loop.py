@@ -113,8 +113,8 @@ async def _execute_task(task: Task):
         messages = [{"role": "user", "content": task.instruction}]
         tools = list_tools()
 
-        for turn in range(5):  # 5 turns max — force efficiency
-            log.info(f"Turn {turn + 1}/10")
+        for turn in range(20):  # 12 turns — enough for computer use workflows
+            log.info(f"Turn {turn + 1}/12")
 
             result = await claude_client.chat(
                 messages=messages, tools=tools, system=system,
@@ -174,9 +174,17 @@ async def _execute_task(task: Task):
                 if output.startswith("data:image/png;base64,"):
                     output = "Screenshot taken. Use screen_analyze to see."
 
+                # AUTO-VERIFY: after click/type actions, auto screenshot+analyze
+                _ui_actions = {"mouse_click", "keyboard_type", "keyboard_press", "focus_app"}
+                if tool_name in _ui_actions:
+                    import asyncio as _aio
+                    await _aio.sleep(1)  # Wait for UI to update
+                    verify = await execute("screen_analyze", {"question": "Decris brievement ce qui est visible. Donne les coordonnees des elements cliquables."})
+                    output += f"\n\n[AUTO-VERIFY apres {tool_name}]\n{verify.output[:800]}"
+
                 # Condense long outputs to save tokens (avoid rate limits)
-                if len(output) > 1500:
-                    output = output[:1500] + "\n...(truncated)"
+                if len(output) > 2000:
+                    output = output[:2000] + "\n...(truncated)"
 
                 tool_log.append(f"{tool_name}: {output[:200]}")
                 return {"type": "tool_result", "tool_use_id": tu["id"],

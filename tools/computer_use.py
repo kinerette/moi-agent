@@ -133,7 +133,7 @@ async def wait(seconds: int = 3) -> str:
 )
 async def focus_app(app_name: str) -> str:
     import subprocess, asyncio
-    # PowerShell: find and activate window by name
+    # PowerShell: find, MAXIMIZE, and activate window
     script = f'''
     Add-Type @"
     using System;
@@ -146,9 +146,10 @@ async def focus_app(app_name: str) -> str:
     $procs = Get-Process | Where-Object {{ $_.MainWindowTitle -ne "" -and $_.ProcessName -like "*{app_name}*" }}
     if ($procs) {{
         $hwnd = $procs[0].MainWindowHandle
-        [Win32]::ShowWindow($hwnd, 9)  # SW_RESTORE
+        [Win32]::ShowWindow($hwnd, 3)  # SW_MAXIMIZE (not just restore — MAXIMIZE)
+        Start-Sleep -Milliseconds 300
         [Win32]::SetForegroundWindow($hwnd)
-        Write-Host "Focused: $($procs[0].ProcessName) - $($procs[0].MainWindowTitle)"
+        Write-Host "Focused+Maximized: $($procs[0].ProcessName) - $($procs[0].MainWindowTitle)"
     }} else {{
         Write-Host "App not found: {app_name}"
     }}
