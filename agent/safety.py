@@ -4,36 +4,46 @@ from __future__ import annotations
 
 from core.models import SafetyLevel
 
-# Patterns that indicate dangerous actions
-_DANGEROUS_PATTERNS = [
-    "delete", "remove", "drop", "format", "shutdown", "reboot",
-    "purchase", "buy", "pay", "send email", "send message",
-    "post to", "publish", "deploy", "push",
-    "rm -rf", "del /s",
-    "pip install", "pip uninstall", "npm install",  # Don't break the venv
+# Tools that ALWAYS need approval
+_DANGEROUS_TOOLS = {
+    "shell",  # Only when command matches dangerous patterns
+}
+
+# Shell commands that need approval
+_DANGEROUS_COMMANDS = [
+    "pip install", "pip uninstall", "npm install",
+    "rm -rf", "del /s", "format", "shutdown", "reboot",
+    "git push", "git reset --hard",
 ]
 
-_MODERATE_PATTERNS = [
-    "install", "download", "write file", "modify",
-    "create", "update", "execute", "run",
-]
+# These tools are ALWAYS safe — never block them
+_SAFE_TOOLS = {
+    "web_search", "web_scrape", "browser_navigate", "browser_open_visible",
+    "browser_get_text", "browser_get_links",
+    "screenshot", "screen_analyze",
+    "file_read", "file_list", "file_write",
+    "mouse_click", "mouse_move", "keyboard_type", "keyboard_press",
+}
 
 
 def classify(action: str) -> SafetyLevel:
-    """Classify an action's safety level."""
     action_lower = action.lower()
 
-    for pattern in _DANGEROUS_PATTERNS:
-        if pattern in action_lower:
-            return SafetyLevel.DANGEROUS
+    # Extract tool name (before the parenthesis)
+    tool_name = action_lower.split("(")[0].strip()
 
-    for pattern in _MODERATE_PATTERNS:
-        if pattern in action_lower:
-            return SafetyLevel.MODERATE
+    # Safe tools are never blocked
+    if tool_name in _SAFE_TOOLS:
+        return SafetyLevel.SAFE
+
+    # Shell commands — check the command content
+    if tool_name == "shell":
+        for pattern in _DANGEROUS_COMMANDS:
+            if pattern in action_lower:
+                return SafetyLevel.DANGEROUS
 
     return SafetyLevel.SAFE
 
 
 def needs_approval(action: str) -> bool:
-    """Only dangerous actions need explicit approval."""
     return classify(action) == SafetyLevel.DANGEROUS

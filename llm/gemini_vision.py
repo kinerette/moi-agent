@@ -1,29 +1,63 @@
-"""Gemini 3 Flash — vision only. Fastest option for screenshot analysis (~2s)."""
+"""Vision with UI element grounding — Qwen2.5-VL via OpenRouter.
+Returns pixel coordinates of clickable elements."""
 
 from __future__ import annotations
 
-import google.generativeai as genai
+import httpx
+import base64
+
 from core.config import settings
 from core.log import log
 
-genai.configure(api_key=settings.google_gemini_api_key)
-_model = genai.GenerativeModel("gemini-3-flash-preview")
+_URL = "https://openrouter.ai/api/v1/chat/completions"
+_MODEL = "qwen/qwen2.5-vl-72b-instruct"
 
-_PROMPT = (
-    "Decris EXACTEMENT ce que tu vois a l'ecran. "
-    "Lis TOUT le texte visible. Boutons, menus, popups, erreurs. "
-    "Positions: haut/bas/gauche/droite/centre. Sois precis et concis."
+_GROUNDING_PROMPT = (
+    "Tu es un assistant de computer use. Analyse cette capture d'ecran.\n"
+    "Pour CHAQUE element interactif visible, donne son nom et ses coordonnees en pixels (x, y) depuis le coin haut-gauche de l'ecran.\n"
+    "Format OBLIGATOIRE pour chaque element:\n"
+    "ELEMENT: 'texte visible' @ (x, y)\n\n"
+    "Exemples:\n"
+    "BOUTON: 'Rechercher' @ (750, 400)\n"
+    "CHAMP: 'Tapez ici...' @ (600, 350)\n"
+    "LIEN: 'AI News' @ (500, 320)\n"
+    "ONGLET: 'Chrome' @ (200, 15)\n\n"
+    "Liste TOUS les elements cliquables. Sois PRECIS sur les coordonnees.\n"
+    "Puis decris brievement la page (quelle app, quel etat)."
 )
 
 
 async def analyze_screenshot(image_bytes: bytes, prompt: str = "") -> str:
+    """Analyze screenshot with Qwen2.5-VL — returns element coordinates."""
     try:
-        image_part = {"mime_type": "image/png", "data": image_bytes}
-        response = await _model.generate_content_async(
-            [prompt or _PROMPT, image_part],
-            generation_config={"max_output_tokens": 800},
-        )
-        return response.text
+        b64 = base64.b64encode(image_bytes).decode()
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                _URL,
+                headers={
+                    "Authorization": f"Bearer {settings.openrouter_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": _MODEL,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt or _GROUNDING_PROMPT},
+                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                            ],
+                        }
+                    ],
+                    "max_tokens": 1500,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        result = data["choices"][0]["message"]["content"]
+        return result
     except Exception as e:
-        log.error(f"Gemini vision error: {e}")
+        log.error(f"Vision error: {e}")
         return f"[Vision error: {e}]"

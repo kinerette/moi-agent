@@ -22,24 +22,12 @@ _approval_event: asyncio.Event = asyncio.Event()
 _approval_result: bool = False
 
 _SYSTEM = (
-    "Tu es MOI, un agent IA autonome. Controle total du PC + Chrome (comptes connectes).\n\n"
-    "OUTILS WEB (rapides, silencieux — pas d'ouverture Chrome):\n"
-    "- browser_navigate(url): fetch une URL, retourne le texte. PAS d'onglet ouvert.\n"
-    "- web_search(query): recherche Google. Retourne les resultats.\n"
-    "- web_scrape(url): scrape une page en markdown.\n"
-    "- browser_open_visible(url): ouvre Chrome UNIQUEMENT si l'user veut VOIR.\n\n"
-    "OUTILS DESKTOP:\n"
-    "- screen_analyze(question): screenshot + vision IA. Pour voir l'ecran.\n"
-    "- mouse_click(x,y) / keyboard_type(text) / keyboard_press(keys): controle PC.\n"
-    "- shell(command): commande systeme. ATTENTION: pip install necessite approbation.\n"
-    "- file_read(path) / file_write(path,content): fichiers.\n\n"
-    "REGLES ABSOLUES:\n"
-    "- AGIS. Jamais de refus. Tu es l'agent de l'utilisateur.\n"
-    "- Quand tu as fini, donne un RAPPORT DETAILLE: ce que tu as fait, ce que tu as trouve, le resultat.\n"
-    "- Si tu cherches quelque chose, donne les RESULTATS CONCRETS (noms, liens, chiffres).\n"
-    "- NE DIS JAMAIS juste 'Done' ou 'Termine'. Donne TOUJOURS les details.\n"
-    "- Sois RAPIDE: fais 1 web_search large, puis 1-2 web_scrape cibles. PAS 10 recherches.\n"
-    "- Quand tu as les donnees, ARRETE de chercher et donne le resultat.\n"
+    "Agent IA autonome. PC + Chrome (comptes connectes). AGIS, jamais de refus.\n"
+    "Outils: web_search, web_scrape, browser_navigate(silencieux), shell, file_read/write,\n"
+    "screen_analyze (donne coordonnees des elements), mouse_click, keyboard_type, focus_app, wait.\n"
+    "IMPORTANT pour computer use: TOUJOURS faire focus_app('chrome') AVANT de cliquer dans Chrome.\n"
+    "screen_analyze donne les coordonnees (x,y) de chaque element. Utilise-les pour mouse_click.\n"
+    "REGLES: Parallele quand possible. Max 4 tours. Rapport detaille (jamais 'Done').\n"
 )
 
 
@@ -125,7 +113,7 @@ async def _execute_task(task: Task):
         messages = [{"role": "user", "content": task.instruction}]
         tools = list_tools()
 
-        for turn in range(10):
+        for turn in range(5):  # 5 turns max — force efficiency
             log.info(f"Turn {turn + 1}/10")
 
             result = await claude_client.chat(
@@ -153,9 +141,8 @@ async def _execute_task(task: Task):
             if not tool_uses or stop_reason == "end_turn":
                 break
 
-            # Execute tools
-            tool_results = []
-            for tu in tool_uses:
+            # Execute ALL tools in PARALLEL (massive speed boost)
+            async def _run_tool(tu):
                 tool_name = tu["name"]
                 tool_args = tu.get("input", {})
 
@@ -171,32 +158,34 @@ async def _execute_task(task: Task):
                     })
                     _approval_event.clear()
                     try:
-                        await asyncio.wait_for(_approval_event.wait(), timeout=300)
+                        await asyncio.wait_for(_approval_event.wait(), timeout=120)
                     except asyncio.TimeoutError:
-                        tool_results.append({"type": "tool_result", "tool_use_id": tu["id"],
-                                             "content": "Timeout — action annulee."})
-                        continue
+                        return {"type": "tool_result", "tool_use_id": tu["id"],
+                                "content": "Timeout — action annulee."}
                     if not _approval_result:
-                        tool_results.append({"type": "tool_result", "tool_use_id": tu["id"],
-                                             "content": "Action refusee par l'utilisateur."})
-                        continue
+                        return {"type": "tool_result", "tool_use_id": tu["id"],
+                                "content": "Action refusee."}
                     task.status = TaskStatus.RUNNING
 
-                # Execute
                 log.info(f"Tool: {tool_name}")
-                await _send_progress(f"{tool_name}...")
                 result_obj = await execute(tool_name, tool_args)
                 output = result_obj.output
 
-                # Don't send raw screenshots to Claude
                 if output.startswith("data:image/png;base64,"):
-                    output = "Screenshot taken. Use screen_analyze to see what's on screen."
+                    output = "Screenshot taken. Use screen_analyze to see."
+
+                # Condense long outputs to save tokens (avoid rate limits)
+                if len(output) > 1500:
+                    output = output[:1500] + "\n...(truncated)"
 
                 tool_log.append(f"{tool_name}: {output[:200]}")
-                tool_results.append({
-                    "type": "tool_result", "tool_use_id": tu["id"],
-                    "content": output[:5000],
-                })
+                return {"type": "tool_result", "tool_use_id": tu["id"],
+                        "content": output}
+
+            # Run all tool calls at once
+            names = [tu["name"] for tu in tool_uses]
+            await _send_progress(f"{', '.join(names)}...")
+            tool_results = await asyncio.gather(*[_run_tool(tu) for tu in tool_uses])
 
             messages.append({"role": "user", "content": tool_results})
 
@@ -263,6 +252,7 @@ async def start_agent_loop(stop_event: asyncio.Event):
     import tools.shell
     import tools.file_ops
     import tools.computer_use
+    import tools.skip_permission
 
     log.info("Agent loop started")
 

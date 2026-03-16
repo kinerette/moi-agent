@@ -109,3 +109,52 @@ async def keyboard_press(keys: str) -> str:
     else:
         pyautogui.press(keys)
     return f"Pressed: {keys}"
+
+
+@tool(
+    name="wait",
+    description="Wait for a number of seconds.",
+    parameters={
+        "seconds": {"type": "integer", "description": "Seconds to wait"},
+    },
+)
+async def wait(seconds: int = 3) -> str:
+    import asyncio
+    await asyncio.sleep(min(seconds, 30))
+    return f"Waited {seconds}s"
+
+
+@tool(
+    name="focus_app",
+    description="Bring an application window to the front. Use 'chrome' for Chrome, 'code' for VS Code, etc.",
+    parameters={
+        "app_name": {"type": "string", "description": "App name (chrome, code, notepad, etc.)"},
+    },
+)
+async def focus_app(app_name: str) -> str:
+    import subprocess, asyncio
+    # PowerShell: find and activate window by name
+    script = f'''
+    Add-Type @"
+    using System;
+    using System.Runtime.InteropServices;
+    public class Win32 {{
+        [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    }}
+"@
+    $procs = Get-Process | Where-Object {{ $_.MainWindowTitle -ne "" -and $_.ProcessName -like "*{app_name}*" }}
+    if ($procs) {{
+        $hwnd = $procs[0].MainWindowHandle
+        [Win32]::ShowWindow($hwnd, 9)  # SW_RESTORE
+        [Win32]::SetForegroundWindow($hwnd)
+        Write-Host "Focused: $($procs[0].ProcessName) - $($procs[0].MainWindowTitle)"
+    }} else {{
+        Write-Host "App not found: {app_name}"
+    }}
+    '''
+    result = subprocess.run(["powershell", "-Command", script], capture_output=True, text=True, timeout=10)
+    output = (result.stdout + result.stderr).strip()
+    await asyncio.sleep(0.5)
+    log.info(f"Focus: {output}")
+    return output or f"Focused {app_name}"

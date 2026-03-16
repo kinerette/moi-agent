@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -13,7 +14,7 @@ from core.config import settings
 from core.log import log
 
 _MESSAGES_URL = "https://api.anthropic.com/v1/messages"
-_REFRESH_URL = "https://console.anthropic.com/api/oauth/token"
+_REFRESH_URL = "https://platform.claude.com/api/oauth/token"
 _LOCK_PATH = Path(settings.claude_credentials_path).with_suffix(".lock")
 
 
@@ -39,6 +40,8 @@ class ClaudeClient:
             log.error(f"Failed to load Claude credentials: {e}")
 
     async def _refresh_if_needed(self):
+        # Always reload from disk (Claude CLI may have refreshed the token)
+        self._load_credentials()
         if time.time() < self._expires_at - 300:  # 5 min buffer
             return
         if not self._refresh_token:
@@ -98,11 +101,30 @@ class ClaudeClient:
         if tools:
             body["tools"] = tools
 
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(_MESSAGES_URL, headers=headers, json=body)
-            resp.raise_for_status()
+        # Retry with backoff — never bombard the API
+        last_error = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=120) as client:
+                    resp = await client.post(_MESSAGES_URL, headers=headers, json=body)
+                    if resp.status_code == 429 or resp.status_code == 500:
+                        wait = (attempt + 1) * 15  # 15s, 30s, 45s
+                        log.warning(f"Claude {resp.status_code} — waiting {wait}s (attempt {attempt+1}/3)")
+                        await asyncio.sleep(wait)
+                        # Reload credentials in case CLI refreshed them
+                        self._load_credentials()
+                        headers["Authorization"] = f"Bearer {self._access_token}"
+                        continue
+                    resp.raise_for_status()
+                    return resp.json()
+            except Exception as e:
+                last_error = e
+                if attempt < 2:
+                    wait = (attempt + 1) * 10
+                    log.warning(f"Claude error: {e} — retrying in {wait}s")
+                    await asyncio.sleep(wait)
 
-        return resp.json()
+        raise last_error or Exception("Claude API failed after 3 attempts")
 
     async def ask(self, prompt: str, system: str = "") -> str:
         """Simple text question → text answer."""

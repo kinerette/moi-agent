@@ -20,8 +20,8 @@ async def file_read(path: str) -> str:
         return f"Not a file: {path}"
     try:
         content = p.read_text(encoding="utf-8", errors="replace")
-        if len(content) > 50000:
-            return content[:50000] + f"\n... (truncated, total {len(content)} chars)"
+        if len(content) > 3000:
+            return content[:3000] + f"\n... (truncated, total {len(content)} chars)"
         return content
     except Exception as e:
         return f"Error reading {path}: {e}"

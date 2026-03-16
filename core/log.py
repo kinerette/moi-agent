@@ -25,7 +25,10 @@ def _setup_logger() -> logging.Logger:
 
     fmt = logging.Formatter("[%(asctime)s] %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
 
-    # Console
+    # Console (force UTF-8 on Windows)
+    if sys.platform == "win32":
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sh = logging.StreamHandler(sys.stdout)
     sh.setFormatter(fmt)
     sh.setLevel(logging.INFO)
